@@ -1,0 +1,33 @@
+{
+  "name": "@deadlinerstudio/cli",
+  "version": "0.1.0",
+  "description": "Agent-native Deadliner task management and WebDAV sync powered by DeadlinerCore",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DeadlinerStudio/DeadlinerCli.git"
+  },
+  "homepage": "https://github.com/DeadlinerStudio/DeadlinerCli#readme",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "bin": {
+    "deadliner": "bin/deadliner"
+  },
+  "files": [
+    "bin/deadliner",
+    "core-revision.txt",
+    "src/",
+    "scripts/",
+    "docs/",
+    "tests/integration.py"
+  ],
+  "scripts": {
+    "build": "sh scripts/build.sh",
+    "test": "python3 tests/integration.py",
+    "prepack": "node scripts/check-package.cjs"
+  }
+}
