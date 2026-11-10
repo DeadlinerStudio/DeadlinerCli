@@ -14,6 +14,9 @@ import kotlin.system.exitProcess
 fun env(name: String): String? = getenv(name)?.toKString()
 
 fun main(args: Array<String>) {
+    val terminal = isatty(STDOUT_FILENO) == 1
+    var jsonOutput = !terminal
+    var words: List<String> = emptyList()
     // Core's macOS logger uses stdout. Reserve the original descriptor for the wire protocol.
     val output = fdopen(dup(STDOUT_FILENO), "w") ?: exitProcess(1)
     fflush(stdout)
@@ -21,19 +24,27 @@ fun main(args: Array<String>) {
     var status = 0
     val response = try {
         val a = Arguments(args)
+        words = a.words
+        jsonOutput = "json" in a.options || ("human" !in a.options && (!terminal || a.words == listOf("schema")))
+        if ("json" in a.options && "human" in a.options) invalid("--json and --human cannot be used together")
+        if (!jsonOutput && "verbose" !in a.options) {
+            val quiet = open("/dev/null", O_WRONLY)
+            if (quiet >= 0) { dup2(quiet, STDOUT_FILENO); close(quiet) }
+        }
         val data = when {
             a.words.isEmpty() || a.options.containsKey("help") -> commandSchema
             a.words == listOf("schema") -> { a.validate(emptySet()); commandSchema }
             a.words == listOf("version") -> {
                 a.validate(emptySet())
-                buildJsonObject { put("cli", "0.1.0"); put("core", KmpBuildMetadata.coreVersion) }
+                buildJsonObject { put("cli", "0.2.0"); put("core", KmpBuildMetadata.coreVersion) }
             }
             else -> withDatabase(a) { db -> runBlocking { execute(db, a) } }
         }
         envelope(data)
     } catch (e: CliError) { status = e.status; failure(e) }
     catch (_: Exception) { status = 1; failure(CliError("INTERNAL_ERROR", "Storage or runtime operation failed", 1)) }
-    fputs(response.toString() + "\n", output)
+    val rendered = if (jsonOutput) response.toString() else humanOutput(response, words)
+    fputs(rendered + "\n", if (!jsonOutput && status != 0) stderr else output)
     fclose(output)
     exitProcess(status)
 }

@@ -1,6 +1,6 @@
 {
   "name": "@deadlinerstudio/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Agent-native Deadliner task management and WebDAV sync powered by DeadlinerCore",
   "license": "GPL-3.0-only",
   "repository": {

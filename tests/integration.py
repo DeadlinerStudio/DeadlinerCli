@@ -4,6 +4,8 @@ import base64
 import fcntl
 import json
 import os
+import pty
+import select
 from pathlib import Path
 import subprocess
 import tempfile
@@ -146,6 +148,74 @@ class Integration(unittest.TestCase):
         WebDAV.fail_write = False
         self.runcli('sync','run'); self.runcli('sync','run',profile=self.b)
         self.runcli('task','get','one',profile=self.b)
+    def human(self, *args, tty=False, code=0):
+        command = [str(BIN), '--data-dir', self.a, *args]
+        if tty:
+            master, slave = pty.openpty()
+            chunks = []
+            finished = threading.Event()
+            def drain():
+                while True:
+                    if select.select([master], [], [], 0.1)[0]:
+                        try:
+                            chunk = os.read(master, 65536)
+                            if not chunk: break
+                            chunks.append(chunk)
+                        except OSError: break
+                    elif finished.is_set(): break
+            reader = threading.Thread(target=drain)
+            reader.start()
+            try:
+                p = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=slave,
+                                   stderr=subprocess.PIPE, timeout=20)
+            finally:
+                finished.set()
+                reader.join(timeout=2)
+                os.close(slave)
+                os.close(master)
+            output = b''.join(chunks).decode()
+            error = p.stderr.decode()
+        else:
+            p = subprocess.run(command, input='', text=True, capture_output=True, timeout=20)
+            output, error = p.stdout, p.stderr
+        self.assertEqual(p.returncode, code, (output, error))
+        return output, error
+
+    def test_human_output_and_tty_selection(self):
+        self.runcli('task', 'add', '--uid', 'human', '--title', '周报', '--note', '附上数据',
+                    '--due', '2026-11-11T18:00:00+08:00')
+        output, error = self.human('task', 'list', tty=True)
+        self.assertIn('[待办] 周报', output)
+        self.assertIn('ID：human', output)
+        self.assertIn('时间显示：', output)
+        self.assertNotIn('"ok":', output)
+        self.assertEqual(error, '')
+        output, _ = self.human('--json', 'task', 'get', 'human', tty=True)
+        self.assertEqual(json.loads(output)['data']['note'], '附上数据')
+        output, _ = self.human('--human', 'task', 'complete', 'human', '--dry-run')
+        self.assertIn('未保存', output)
+        self.assertEqual(self.runcli('task', 'get', 'human')['state'], 'active')
+        self.runcli('task', 'update', 'human', '--clear-due', '--note', '')
+        self.assertIsNone(self.runcli('task', 'get', 'human')['dueAt'])
+        self.runcli('task', 'update', 'human', '--input', '-', '--title', 'bad', data={'note':'x'}, code=2)
+        self.runcli('task', 'update', 'human', '--due', '2026-11-11T00:00:00Z', '--clear-due', code=2)
+        self.runcli('--human', '--json', 'task', 'list', code=2)
+        output, error = self.human('--human', 'task', 'get', 'missing', code=3)
+        self.assertEqual(output, '')
+        self.assertIn('找不到这个任务', error)
+        help_text, _ = self.human('--human', '-h')
+        self.assertIn('快速开始', help_text)
+        self.assertIn('--title', help_text)
+        output, _ = self.human('schema', tty=True)
+        self.assertEqual(json.loads(output)['data']['protocolVersion'], 1)
+
+    def test_terminal_text_sanitization(self):
+        self.add(title='标题\x1b[2J\n伪造行\u202e')
+        output, _ = self.human('--human', 'task', 'list')
+        self.assertNotIn('\x1b', output)
+        self.assertNotIn('\u202e', output)
+        self.assertIn(' ↵ ', output)
+
     def test_discovery(self):
         self.assertEqual(self.runcli('schema')['protocolVersion'],1)
         self.runcli('version'); self.runcli('unknown',code=2)

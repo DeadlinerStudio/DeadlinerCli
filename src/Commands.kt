@@ -23,8 +23,8 @@ suspend fun execute(db: DeadlinerDatabase, a: Arguments): JsonElement {
     val allowed = when (op) {
         "list" -> setOf("state", "query", "limit", "offset")
         "get" -> emptySet()
-        "add" -> setOf("input", "dry-run")
-        "update" -> setOf("input", "dry-run", "if-updated-at")
+        "add" -> setOf("input", "dry-run", "uid", "title", "note", "start", "due", "clear-start", "clear-due")
+        "update" -> setOf("input", "dry-run", "if-updated-at", "title", "note", "start", "due", "clear-start", "clear-due")
         else -> setOf("dry-run", "if-updated-at")
     }
     a.validate(allowed)

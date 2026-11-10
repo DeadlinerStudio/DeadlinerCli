@@ -7,7 +7,7 @@ Agent Native 的 Deadliner 命令行客户端。Kotlin/Native 直接编译接入
 ## 一键安装（macOS Apple Silicon）
 
 ```sh
-npm install -g https://github.com/DeadlinerStudio/DeadlinerCli/releases/download/v0.1.0/deadlinerstudio-cli-0.1.0.tgz
+npm install -g https://github.com/DeadlinerStudio/DeadlinerCli/releases/download/v0.2.0/deadlinerstudio-cli-0.2.0.tgz
 deadliner version
 deadliner schema
 ```
@@ -30,7 +30,24 @@ export DEADLINER_CORE_DIR=/absolute/path/to/DeadlinerCore
 
 把 `bin/deadliner` 复制到 PATH 中已有的用户目录即可。默认数据库目录为 `~/.local/share/deadliner`，可设置 `DEADLINER_HOME` 或逐次传 `--data-dir /absolute/path`。目录含 SQLite 数据、持久设备 ID、进程锁，应作为一个独立 CLI profile 使用，不应指向正在使用的 App 数据库。备份时先停掉该 profile 的 CLI 进程，再复制整个目录。
 
-## 任务管理
+## 日常使用
+
+直接在终端运行会显示中文帮助、任务列表、详情和操作结果；不用阅读或编写 JSON。
+
+```sh
+deadliner --help
+deadliner task add --title "提交周报" --due "2026-11-11T18:00:00+08:00"
+deadliner task list
+deadliner task get <ID>
+deadliner task update <ID> --note "附上数据" --clear-due
+deadliner task complete <ID>
+```
+
+列表保留完整任务 ID；日期按本机时区显示，并标明时区。`--human` 强制易读输出，适合复制到文件。默认隐藏易读模式下的 Core 诊断日志，`--verbose` 可以打开。错误写到 stderr 并保持原退出码。`--dry-run` 会明确提示未保存。
+
+人类输入可用 `--title`、`--note`、`--start`、`--due`；新建可用 `--uid`。`--clear-start` / `--clear-due` 清除时间。复杂字段仍支持以下 JSON 输入；两种输入方式不能混用。
+
+## JSON 任务管理
 
 ```sh
 printf '%s\n' '{"uid":"report-20261110","title":"提交周报","dueAt":"2026-11-10T18:00:00+08:00"}' \
@@ -57,7 +74,7 @@ deadliner task delete report-20261110 --dry-run
 
 ## Agent 协议
 
-默认（也可显式 `--json`）stdout 只输出一个 JSON 对象；Core 日志转至 stderr，无交互提示。通过 `schema` 自发现命令和字段。成功示例：
+终端默认易读输出；输出到管道/文件时默认 JSON。Agent 应显式传 `--json`，不依赖是否有终端。`schema` 默认始终为 JSON；`--human` 可查看易读帮助。JSON 模式 stdout 只输出一个 JSON 对象；Core 日志转至 stderr，无交互提示。通过 `schema` 自发现命令和字段。成功示例：
 
 ```json
 {"ok":true,"version":1,"data":{"items":[],"total":0,"offset":0,"limit":100}}
@@ -103,6 +120,6 @@ python3 tests/integration.py
 
 ## 打包发布
 
-在 Apple Silicon 上构建并运行集成测试后执行 `npm pack`，得到 `deadlinerstudio-cli-0.1.0.tgz`。prepack 会检查 Mach-O 架构、CLI 版本和 Core commit；将包与 SHA256SUMS 上传到同版本 GitHub Release。安装包不包含开发缓存或账号信息。
+在 Apple Silicon 上构建并运行集成测试后执行 `npm pack`，得到 `deadlinerstudio-cli-0.2.0.tgz`。prepack 会检查 Mach-O 架构、CLI 版本和 Core commit；将包与 SHA256SUMS 上传到同版本 GitHub Release。安装包不包含开发缓存或账号信息。
 
 Core 对应源码：[DeadlinerCore](https://github.com/DeadlinerStudio/DeadlinerCore)，准确提交见 `core-revision.txt`；CLI 对应源代码随安装包附带，也保存在 Release tag 中。

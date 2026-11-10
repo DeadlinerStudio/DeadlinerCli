@@ -18,3 +18,11 @@
 - 安装到临时 prefix，并使用 `--ignore-scripts`，`deadliner version` / `schema` 均成功；无需安装脚本。
 - 对安装后的 binary 运行 `DEADLINER_TEST_BINARY=... python3 tests/integration.py`：6 组全部通过（2.591 秒）。
 - 发布渠道为 GitHub Release 的 `.tgz`，没有发布至 npm registry；包名 `@deadlinerstudio/cli` 用于本地安装/卸载标识。
+
+## 易读终端输出（2026-11-10，v0.2.0）
+
+- 原生构建通过；8 组集成测试全部通过（2.733 秒）。
+- 真实 PTY 默认输出中文列表；显式 --json 保持 JSON；非 TTY 的 JSON 兼容旧脚本；schema 在 TTY 仍默认 JSON。
+- 易读模式错误走 stderr、成功走 stdout；默认隐藏 Core 日志；终端控制字符和双向文本控制符被过滤。
+- 验证 --title/--note/--due 字段输入、清除日期、混合输入拒绝、dry-run 不保存、任务状态与 WebDAV 回归。
+- 人工查看了中文帮助、新建结果及带截止时间和完整 ID 的任务列表。
