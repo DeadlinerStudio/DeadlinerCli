@@ -1,0 +1,36 @@
+name: Build CLI prototype
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: cli
+      - uses: actions/checkout@v4
+        with:
+          repository: DeadlinerStudio/DeadlinerCore
+          ref: 7ce16d278753e8550b0e40a7483f4ad2170dfdfd
+          path: core
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - working-directory: cli
+        env:
+          DEADLINER_CORE_DIR: ${{ github.workspace }}/core
+        run: |
+          sh scripts/build.sh
+          python3 tests/integration.py
+          python3 tests/serve.py
+          npm pack --pack-destination "$RUNNER_TEMP"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deadliner-cli-arm64
+          path: ${{ runner.temp }}/deadlinerstudio-cli-*.tgz
+          if-no-files-found: error

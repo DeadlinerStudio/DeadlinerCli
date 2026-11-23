@@ -74,7 +74,7 @@ val commandSchema: JsonObject get() = buildJsonObject {
     put("output", "TTY defaults to human output; pipes and schema default to JSON. --json/--human override. No interactive prompts.")
     put("input", "task add/update --input - reads a strict JSON object from stdin")
     putJsonArray("commands") {
-        listOf("schema", "version", "task list", "task get UID", "task add", "task update UID",
+        listOf("schema", "version", "serve", "task list", "task get UID", "task add", "task update UID",
             "task delete UID", "task complete UID", "task reopen UID", "task archive UID",
             "task abandon UID", "task unarchive UID", "sync status", "sync run").forEach { add(it) }
     }

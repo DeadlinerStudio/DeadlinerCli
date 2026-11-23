@@ -19,6 +19,8 @@
   },
   "files": [
     "bin/deadliner",
+    "bin/deadliner-serve",
+    "server/",
     "core-revision.txt",
     "src/",
     "scripts/",

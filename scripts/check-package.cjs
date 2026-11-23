@@ -8,6 +8,8 @@ const binary = path.join(root, pkg.bin.deadliner);
 if (process.platform !== 'darwin' || process.arch !== 'arm64') {
   throw new Error('Package the macOS arm64 release on an Apple Silicon Mac.');
 }
+const helper = readFileSync(path.join(root, "bin", "deadliner-serve"));
+if (helper.readUInt32LE(0) !== 0xfeedfacf || helper.readUInt32LE(4) !== 0x0100000c) throw new Error("Missing arm64 serve helper");
 const bytes = readFileSync(binary);
 if (bytes.readUInt32LE(0) !== 0xfeedfacf || bytes.readUInt32LE(4) !== 0x0100000c) {
   throw new Error('bin/deadliner must be a Mach-O arm64 executable. Run npm run build.');

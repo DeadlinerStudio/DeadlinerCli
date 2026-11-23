@@ -127,6 +127,7 @@ Deadliner · 终端任务管理
   abandon / delete <ID>        放弃 / 删除
 
 其他命令
+  serve                        开启本机只读任务预览
   sync status                  查看 WebDAV 是否配置
   sync run                     双向同步（需要 WebDAV 环境变量）
   version                      查看版本

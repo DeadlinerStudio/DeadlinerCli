@@ -2,7 +2,7 @@
 
 Agent Native 的 Deadliner 命令行客户端。Kotlin/Native 直接编译接入 DeadlinerCore，复用 SQLite 仓储、任务状态机、change log、删除墓碑及 WebDAV V3 合并逻辑。
 
-首版支持 **macOS Apple Silicon**，不是 Linux/Windows 通用二进制。没有网络时本地任务管理仍可使用。CLI 不依赖 JVM 运行；源码构建需要 JDK、Xcode Command Line Tools 以及 Core 的 Gradle/Kotlin 工具链（当前 Core 配置还需要 Android SDK）。
+首版支持 **macOS Apple Silicon**，不是 Linux/Windows 通用二进制。没有网络时本地任务管理仍可使用。CLI 不依赖 JVM 运行；源码构建需要 Go 1.20+、JDK、Xcode Command Line Tools 以及 Core 的 Gradle/Kotlin 工具链（当前 Core 配置还需要 Android SDK）。
 
 ## 一键安装（macOS Apple Silicon）
 
@@ -28,7 +28,7 @@ export DEADLINER_CORE_DIR=/absolute/path/to/DeadlinerCore
 
 构建将 Core 复制到忽略目录 `.build/core`，排除私有 Lifi overlay 并使用 stub；不修改原 Core checkout。可将 Gradle 参数传给构建脚本，例如 `./scripts/build.sh --offline`。Core 基线见 `core-revision.txt`；兼容更新后需重新运行集成测试。`version` 输出构建时 Core commit 标识；本地 Core 未提交变更也会进入源码快照，因此发布构建应使用干净 checkout。
 
-把 `bin/deadliner` 复制到 PATH 中已有的用户目录即可。默认数据库目录为 `~/.local/share/deadliner`，可设置 `DEADLINER_HOME` 或逐次传 `--data-dir /absolute/path`。目录含 SQLite 数据、持久设备 ID、进程锁，应作为一个独立 CLI profile 使用，不应指向正在使用的 App 数据库。备份时先停掉该 profile 的 CLI 进程，再复制整个目录。
+手动安装时，把 `bin/deadliner` 和 `bin/deadliner-serve` 一起复制到 PATH 中已有的用户目录。默认数据库目录为 `~/.local/share/deadliner`，可设置 `DEADLINER_HOME` 或逐次传 `--data-dir /absolute/path`。目录含 SQLite 数据、持久设备 ID、进程锁，应作为一个独立 CLI profile 使用，不应指向正在使用的 App 数据库。备份时先停掉该 profile 的 CLI 进程，再复制整个目录。
 
 ## 日常使用
 
@@ -123,3 +123,9 @@ python3 tests/integration.py
 在 Apple Silicon 上构建并运行集成测试后执行 `npm pack`，得到 `deadlinerstudio-cli-0.2.0.tgz`。prepack 会检查 Mach-O 架构、CLI 版本和 Core commit；将包与 SHA256SUMS 上传到同版本 GitHub Release。安装包不包含开发缓存或账号信息。
 
 Core 对应源码：[DeadlinerCore](https://github.com/DeadlinerStudio/DeadlinerCore)，准确提交见 `core-revision.txt`；CLI 对应源代码随安装包附带，也保存在 Release tag 中。
+
+## Mac 只读任务窗口
+
+运行 `deadliner serve`（也支持 `--data-dir /absolute/path`），在 Mac 客户端「前往 → CLI 任务（只读）」粘贴终端显示的会话连接码。保持终端开启，在另一个终端修改同一 profile 的任务；打开的窗口每两秒检查一次更新。新 profile 先运行一次 `deadliner task list` 初始化。按 Ctrl+C 断开，下次启动会生成新连接码。
+
+v1 仅监听随机端口的 IPv4 回环地址。连接码为 `端口.64位十六进制令牌`，仅在本次服务进程存活期间有效。客户端用 Bearer 令牌访问 `GET /v1/tasks`，响应包含 `version: 1` 和 `items`；可携带上次的 ETag，未变更时返回 304。服务通过系统 SQLite 的只读连接读取一次已提交的任务快照，包含 UID、标题、备注、状态、开始及截止时间，排除删除墓碑。其他 CLI 命令继续使用原来的 profile 锁。
