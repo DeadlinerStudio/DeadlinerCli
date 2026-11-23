@@ -8,8 +8,9 @@ if [ -f "$base/deadliner-cli-profile" ]; then
     IFS= read -r DEADLINER_HOME < "$base/deadliner-cli-profile"
     export DEADLINER_HOME
 fi
+case "$#:$*" in "0:"|"1:--allow-writes") ;; *) exit 2 ;; esac
 exec 3<&0
-"$cli" --json serve </dev/null 3<&- &
+"$cli" --json serve "$@" </dev/null 3<&- &
 service=$!
 ( IFS= read -r line <&3 || :; kill "$service" 2>/dev/null || : ) &
 watcher=$!

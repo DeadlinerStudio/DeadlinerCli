@@ -22,7 +22,7 @@ class Arguments(args: Array<String>) {
             else {
                 val key = a.removePrefix("--")
                 if (key in options) invalid("Duplicate option: $a")
-                options[key] = if (key in setOf("dry-run", "help", "json", "human", "verbose", "clear-due", "clear-start")) "true"
+                options[key] = if (key in setOf("allow-writes", "dry-run", "help", "json", "human", "verbose", "clear-due", "clear-start")) "true"
                 else args.getOrNull(i++) ?: invalid("Missing value for $a")
             }
         }
@@ -91,6 +91,7 @@ val commandSchema: JsonObject get() = buildJsonObject {
     }
     putJsonObject("options") {
         put("global", "--data-dir ABSOLUTE_PATH; --json; --human; --verbose")
+        put("serve", "serve --allow-writes enables version-checked task mutations for this session")
         put("list", "--state active|completed|archived|abandoned|abandonedArchived --query TEXT --limit 1..1000 --offset N")
         put("fieldOptions", "add/update: --title TEXT --note TEXT --start RFC3339 --due RFC3339 --clear-start --clear-due; add: --uid ID; mutually exclusive with --input")
         put("mutations", "--dry-run; update/delete/actions: --if-updated-at RFC3339")

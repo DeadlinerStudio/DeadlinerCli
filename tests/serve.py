@@ -35,6 +35,48 @@ class ServeTest(unittest.TestCase):
                 finally:
                     if proc.poll() is None: proc.terminate()
 
+    def test_revision_checked_round_trip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cli = [str(BIN), "--json", "--data-dir", directory, "task"]
+            def task(*args):
+                return json.loads(subprocess.check_output(cli + list(args)))["data"]
+            task("list")
+            with subprocess.Popen(cli[:-1] + ["serve", "--allow-writes"], stdout=subprocess.PIPE, text=True) as server:
+                try:
+                    port, token = json.loads(server.stdout.readline())["data"]["connectionCode"].split(".")
+                    url = f"http://127.0.0.1:{port}/v1/tasks"
+                    headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
+                    def write(op, **payload):
+                        body = json.dumps(dict(op=op, uid="fixture", **payload)).encode()
+                        with urlopen(Request(url, data=body, headers=headers), timeout=10) as response:
+                            return json.load(response)
+                    def row():
+                        with urlopen(Request(url, headers=headers), timeout=5) as response:
+                            snapshot = json.load(response)
+                            self.assertTrue(snapshot["writable"])
+                            return snapshot["items"][0]
+                    for _ in range(2):
+                        self.assertTrue(write("add", fields={"title":"上线质量复核"})["ok"])
+                    first = row()["updatedAt"]
+                    task("update", "fixture", "--note", "terminal")
+                    self.assertEqual(row()["note"], "terminal")
+                    with self.assertRaises(HTTPError) as stale:
+                        write("update", revision=first, fields={"title":"stale"})
+                    self.assertEqual(stale.exception.code, 409)
+                    revision = row()["updatedAt"]
+                    with self.assertRaises(HTTPError) as invalid:
+                        write("update", revision=revision, fields={"dueAt":"tomorrow"})
+                    self.assertEqual(invalid.exception.code, 400)
+                    write("update", revision=revision, fields={"note":"Mac"})
+                    self.assertEqual(task("get", "fixture")["note"], "Mac")
+                    write("complete", revision=row()["updatedAt"])
+                    self.assertEqual(task("get", "fixture")["state"], "completed")
+                    write("delete", revision=row()["updatedAt"])
+                    self.assertEqual(task("list")["total"], 0)
+                finally:
+                    server.terminate()
+                    server.wait(timeout=10)
+
     def test_readonly_live_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:
             cli = [str(BIN), "--json", "--data-dir", directory]
