@@ -77,6 +77,42 @@ class ServeTest(unittest.TestCase):
                     server.terminate()
                     server.wait(timeout=10)
 
+    def test_native_task_snapshot_exchange(self):
+        empty = {"formatVersion":6,"snapshot":{"format_version":6,"version":{"ts":"2026-01-01T00:00:00Z","dev":"test"}}}
+        with tempfile.TemporaryDirectory() as profile, tempfile.TemporaryDirectory() as other:
+            def cli(path, *args, data=None):
+                return json.loads(subprocess.check_output(
+                    [str(BIN), "--json", "--data-dir", path, *args], input=data))["data"]
+            cli(other, "task", "add", "--uid", "mac", "--title", "Mac only")
+            cli(profile, "task", "add", "--uid", "terminal", "--title", "上线质量复核")
+            mac = cli(other, "task-peer-exchange", data=json.dumps(empty).encode())
+            with subprocess.Popen([str(BIN), "--json", "--data-dir", profile, "serve", "--allow-writes"],
+                                  stdout=subprocess.PIPE, text=True) as server:
+                try:
+                    port, token = json.loads(server.stdout.readline())["data"]["connectionCode"].split(".")
+                    url = f"http://127.0.0.1:{port}/v1/task-peer"
+                    headers = {"Authorization":"Bearer " + token}
+                    def exchange(payload):
+                        with urlopen(Request(url, data=json.dumps(payload).encode(), headers=headers), timeout=15) as response:
+                            return json.load(response)["data"]
+                    def revision():
+                        with urlopen(Request(url, headers=headers, method="HEAD"), timeout=5) as response:
+                            return response.headers["ETag"]
+                    first = revision()
+                    both = exchange(mac)
+                    self.assertNotEqual(first, revision())
+                    self.assertEqual({t["uid"] for t in both["snapshot"]["tasks"]}, {"mac", "terminal"})
+                    self.assertLessEqual(set(both["snapshot"]), {"tasks", "categories", "format_version", "version"})
+                    cli(other, "task-peer-exchange", data=json.dumps(both).encode())
+                    self.assertEqual(cli(other, "task", "get", "terminal")["title"], "上线质量复核")
+                    cli(profile, "task", "delete", "terminal")
+                    merged = exchange(mac)
+                    cli(other, "task-peer-exchange", data=json.dumps(merged).encode())
+                    self.assertEqual(cli(other, "task", "list")["total"], 1)
+                finally:
+                    server.terminate()
+                    server.wait(timeout=5)
+
     def test_readonly_live_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:
             cli = [str(BIN), "--json", "--data-dir", directory]

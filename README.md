@@ -134,4 +134,6 @@ v1 仅监听随机端口的 IPv4 回环地址。连接码为 `端口.64位十六
 如希望打开 Mac 只读窗口时自动启动服务，可在能运行 `deadliner` 的终端执行一次 `sh "$(npm root -g)/@deadlinerstudio/cli/scripts/enable-macos-autostart.sh"`。启动器使用此次 PATH 选中的 CLI 和数据目录，兼容 fnm 的临时 PATH；切换 CLI 安装或 profile 后可重新运行。关闭窗口会停止它启动的服务。手动配对仍可单独使用。移除 `~/Library/Application Scripts/com.deadliner.macos/deadliner-readonly` 即可关闭自动启动。
 
 
-Mac 任务页选择「CLI」时，启动器会请求可写会话。手动配对可用 `deadliner serve --allow-writes`。GET 响应的 `writable` 表明会话权限，每条任务带有 `updatedAt`。可写会话接受同一端点的 POST，请求形如 `{"op":"update","uid":"…","revision":"…","fields":{"note":"已复核"}}`。创建使用 `add` 和稳定 UID。编辑和状态操作须传入上次读取的任务版本；若终端已修改，服务返回 409。写入通过原生 CLI 执行，沿用其 profile 锁、日期校验和状态转换。
+支持原生任务整合的 Mac 客户端可在后台请求可写会话。手动配对可用 `deadliner serve --allow-writes`。GET 响应的 `writable` 表明会话权限，每条任务带有 `updatedAt`。可写会话接受同一端点的 POST，请求形如 `{"op":"update","uid":"…","revision":"…","fields":{"note":"已复核"}}`。创建使用 `add` 和稳定 UID。编辑和状态操作须传入上次读取的任务版本；若终端已修改，服务返回 409。写入通过原生 CLI 执行，沿用其 profile 锁、日期校验和状态转换。
+
+支持后台整合的客户端通过同一 Bearer 会话访问 `/v1/task-peer`。HEAD 返回任务及分类版本的 ETag，POST 通过 Core 合并任务、子任务、分类和删除标记，并返回合并后的任务快照。双方独有的 UID 均保留。其他资源由各端独立管理。

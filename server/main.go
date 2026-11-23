@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -58,17 +59,22 @@ func main() {
 		}
 		fmt.Printf("在 Mac 的 CLI 任务界面输入连接码（%s）：\n%s\n按 Ctrl+C 停止服务。\n", mode, code)
 	}
+	var peer taskPeer
 	server := http.Server{
-		ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second,
+		ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 30 * time.Second,
 		IdleTimeout: 15 * time.Second, MaxHeaderBytes: 8192,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "no-store")
-			if r.URL.Path != "/v1/tasks" {
+			if r.URL.Path != "/v1/tasks" && !(writable && r.URL.Path == "/v1/task-peer") {
 				http.NotFound(w, r)
 				return
 			}
 			if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
 				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			if r.URL.Path == "/v1/task-peer" {
+				peer.serve(w, r, cli, os.Args[1], path)
 				return
 			}
 			if writable && r.Method == http.MethodPost {
@@ -180,4 +186,79 @@ func writeTask(w http.ResponseWriter, r *http.Request, cli, profile string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	w.Write(result)
+}
+
+// Cache the logical revision across idle polls. Any database or WAL change invalidates
+// the cheap filesystem key; only task/category versions affect the returned ETag.
+type taskPeer struct {
+	mu    sync.Mutex
+	stamp string
+	etag  string
+}
+
+func (p *taskPeer) revision(path string) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var stamp string
+	for _, name := range []string{path, path + "-wal"} {
+		f, err := os.Stat(name)
+		if err != nil {
+			if os.IsNotExist(err) && name != path {
+				continue
+			}
+			return "", err
+		}
+		stamp += fmt.Sprintf("%s:%d:%d;", name, f.Size(), f.ModTime().UnixNano())
+	}
+	if p.etag != "" && stamp == p.stamp {
+		return p.etag, nil
+	}
+	const revisions = `SELECT entity_kind,entity_uid,ts,ctr,dev FROM legacy_v2_version WHERE entity_kind IN ('category','task') ORDER BY 1,2;
+SELECT uid,updated_at,is_deleted FROM task ORDER BY uid;
+SELECT uid,updated_at,is_deleted FROM category ORDER BY uid;
+SELECT uid,updated_at,is_deleted FROM task_subtask ORDER BY uid;`
+	result, err := exec.Command("/usr/bin/sqlite3", "-batch", "-init", "/dev/null", "-readonly", "-json", path, revisions).Output()
+	if err != nil {
+		return "", err
+	}
+	p.stamp, p.etag = stamp, fmt.Sprintf("\"%x\"", sha256.Sum256(result))
+	return p.etag, nil
+}
+
+func (p *taskPeer) serve(w http.ResponseWriter, r *http.Request, cli, profile, path string) {
+	switch r.Method {
+	case http.MethodHead:
+		tag, err := p.revision(path)
+		if err != nil {
+			w.WriteHeader(503)
+			return
+		}
+		w.Header().Set("ETag", tag)
+		if tag == r.Header.Get("If-None-Match") {
+			w.WriteHeader(304)
+		}
+	case http.MethodPost:
+		data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 32<<20))
+		if err != nil {
+			w.WriteHeader(413)
+			return
+		}
+		var compact bytes.Buffer
+		if json.Compact(&compact, data) != nil {
+			w.WriteHeader(400)
+			return
+		}
+		cmd := exec.CommandContext(r.Context(), cli, "--json", "--data-dir", profile, "task-peer-exchange")
+		cmd.Stdin = &compact
+		result, err := cmd.Output()
+		if err != nil {
+			http.Error(w, "Task exchange unavailable", 503)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(result)
+	default:
+		w.Header().Set("Allow", "HEAD, POST")
+		w.WriteHeader(405)
+	}
 }
