@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import tempfile
 import unittest
 from urllib.error import HTTPError
@@ -11,6 +12,29 @@ from urllib.request import Request, urlopen
 BIN = Path(os.environ.get("DEADLINER_TEST_BINARY", Path(__file__).resolve().parents[1] / "bin/deadliner"))
 
 class ServeTest(unittest.TestCase):
+    def test_macos_window_owns_service_lifetime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            profile = root / "profile with spaces"
+            subprocess.run([str(BIN), "--json", "--data-dir", str(profile), "task", "list"], check=True, stdout=subprocess.DEVNULL)
+            hook = root / "deadliner-readonly"
+            shutil.copy2(Path(__file__).resolve().parents[1] / "scripts/macos-readonly-launcher.sh", hook)
+            (root / "deadliner-cli-binary").symlink_to(BIN.resolve())
+            (root / "deadliner-cli-profile").write_text(str(profile) + "\n")
+            with subprocess.Popen([str(hook)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) as proc:
+                try:
+                    code = json.loads(proc.stdout.readline())["data"]["connectionCode"]
+                    port, token = code.split(".")
+                    req = Request(f"http://127.0.0.1:{port}/v1/tasks", headers={"Authorization":"Bearer " + token})
+                    with urlopen(req, timeout=5) as response:
+                        self.assertEqual(json.load(response)["items"], [])
+                    proc.stdin.close()
+                    proc.wait(timeout=5)
+                    with self.assertRaises(OSError):
+                        urlopen(req, timeout=2)
+                finally:
+                    if proc.poll() is None: proc.terminate()
+
     def test_readonly_live_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:
             cli = [str(BIN), "--json", "--data-dir", directory]
