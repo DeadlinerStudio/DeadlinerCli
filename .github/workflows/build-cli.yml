@@ -2,6 +2,9 @@ name: Build CLI prototype
 on:
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: cli-prototype-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -21,6 +24,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Bootstrap Kotlin/Native on the clean runner
+        working-directory: core
+        run: ./gradlew -PlifiMode=stub :shared:downloadKotlinNativeDistribution --console=plain
       - working-directory: cli
         env:
           DEADLINER_CORE_DIR: ${{ github.workspace }}/core
