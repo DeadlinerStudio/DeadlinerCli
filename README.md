@@ -64,6 +64,7 @@ deadliner task abandon report-20261110
 deadliner task delete report-20261110 --dry-run
 ```
 
+- 新写入的 `startAt` 和 `dueAt` 使用四位年份、大写 T、时分秒和明确时区（大写 Z 或 ±HH:MM），可选 1–9 位小数秒。例如 `2026-11-23T18:30:00+08:00`。自然语言、无时区值、简写偏移（如 +08）和不存在的日期会返回退出码 2，整次写入取消。清空时间使用 JSON null 或清除选项。
 - 更新是局部 patch；未知字段、非法类型和空标题均拒绝。`null` 清除日期/分类，`""` 清空 note。日期需 RFC3339 且有时区。
 - 任务状态只能通过动作修改；动作约束由 Core 决定。`complete`/`abandon` 不会在重试时切回 active。
 - add 可传稳定 `uid`；相同意图的重试返回 `NO_OP`，UID 内容冲突返回 4。任务后来被修改/删除时同样返回冲突，不复活旧数据。

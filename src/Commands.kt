@@ -9,6 +9,8 @@ import kotlinx.datetime.Instant
 import kotlinx.serialization.json.*
 import platform.Foundation.NSUUID
 
+private val taskTimePattern = Regex("""[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})""")
+
 private val fields = setOf("title", "note", "startAt", "dueAt", "categoryUid", "isStarred")
 private val actions = mapOf("complete" to TaskAction.MARK_COMPLETE, "reopen" to TaskAction.RESTORE_ACTIVE,
     "archive" to TaskAction.MARK_ARCHIVE, "abandon" to TaskAction.MARK_GIVE_UP, "unarchive" to TaskAction.UNARCHIVE)
@@ -100,7 +102,8 @@ private fun validateFields(input: JsonObject, add: Boolean) {
     input.text("note"); input.flag("isStarred")
     input.text("categoryUid", true)?.let { if (it.isBlank()) invalid("categoryUid must not be blank") }
     for (key in listOf("startAt", "dueAt")) input.text(key, true)?.let {
-        try { Instant.parse(it) } catch (_: Exception) { invalid("$key must be an RFC3339 instant with timezone") }
+        if (!taskTimePattern.matches(it)) invalid("$key must use $taskTimeFormat")
+        try { Instant.parse(it) } catch (_: IllegalArgumentException) { invalid("$key is not a valid date/time; use $taskTimeFormat") }
     }
 }
 

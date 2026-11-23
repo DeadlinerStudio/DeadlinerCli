@@ -69,6 +69,8 @@ fun JsonObject.flag(key: String): Boolean? {
     return v.booleanOrNull ?: invalid("$key must be boolean")
 }
 
+const val taskTimeFormat = "YYYY-MM-DDTHH:mm:ss[.fraction] with Z or ±HH:MM (e.g. 2026-11-23T18:30:00+08:00)"
+
 val commandSchema: JsonObject get() = buildJsonObject {
     put("name", "deadliner"); put("protocolVersion", 1); put("platform", "macos-arm64")
     put("output", "TTY defaults to human output; pipes and schema default to JSON. --json/--human override. No interactive prompts.")
@@ -82,8 +84,8 @@ val commandSchema: JsonObject get() = buildJsonObject {
         put("uid", "string, optional on add only; stable retry identifier")
         put("title", "nonblank string; required on add")
         put("note", "string")
-        put("startAt", "RFC3339 instant with timezone or null")
-        put("dueAt", "RFC3339 instant with timezone or null")
+        put("startAt", "$taskTimeFormat, or null")
+        put("dueAt", "$taskTimeFormat, or null")
         put("categoryUid", "string or null")
         put("isStarred", "boolean")
     }
