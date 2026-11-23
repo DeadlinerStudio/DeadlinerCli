@@ -130,3 +130,5 @@ Core 对应源码：[DeadlinerCore](https://github.com/DeadlinerStudio/Deadliner
 运行 `deadliner serve`（也支持 `--data-dir /absolute/path`），在 Mac 客户端「前往 → CLI 任务（只读）」粘贴终端显示的会话连接码。保持终端开启，在另一个终端修改同一 profile 的任务；打开的窗口每两秒检查一次更新。新 profile 先运行一次 `deadliner task list` 初始化。按 Ctrl+C 断开，下次启动会生成新连接码。
 
 v1 仅监听随机端口的 IPv4 回环地址。连接码为 `端口.64位十六进制令牌`，仅在本次服务进程存活期间有效。客户端用 Bearer 令牌访问 `GET /v1/tasks`，响应包含 `version: 1` 和 `items`；可携带上次的 ETag，未变更时返回 304。服务通过系统 SQLite 的只读连接读取一次已提交的任务快照，包含 UID、标题、备注、状态、开始及截止时间，排除删除墓碑。其他 CLI 命令继续使用原来的 profile 锁。
+
+如希望打开 Mac 只读窗口时自动启动服务，可在能运行 `deadliner` 的终端执行一次 `sh "$(npm root -g)/@deadlinerstudio/cli/scripts/enable-macos-autostart.sh"`。启动器使用此次 PATH 选中的 CLI 和数据目录，兼容 fnm 的临时 PATH；切换 CLI 安装或 profile 后可重新运行。关闭窗口会停止它启动的服务。手动配对仍可单独使用。移除 `~/Library/Application Scripts/com.deadliner.macos/deadliner-readonly` 即可关闭自动启动。
