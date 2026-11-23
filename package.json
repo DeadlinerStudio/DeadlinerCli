@@ -30,6 +30,7 @@
   "scripts": {
     "build": "sh scripts/build.sh",
     "test": "python3 tests/integration.py",
-    "prepack": "node scripts/check-package.cjs"
+    "prepack": "node scripts/check-package.cjs",
+    "postinstall": "sh scripts/enable-macos-autostart.sh --global-install"
   }
 }
