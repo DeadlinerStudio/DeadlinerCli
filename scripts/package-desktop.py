@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import stat
+import tempfile
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("jars", type=Path)
@@ -30,6 +32,13 @@ if os.name == "nt":
     if not mt:
         raise SystemExit("Windows SDK manifest tool (mt.exe) is required for Unicode arguments")
     launcher = args.destination / "deadliner" / "deadliner.exe"
-    subprocess.run([str(mt), "-nologo", "-manifest", str(root / "scripts/windows-utf8.manifest"),
-                    f"-updateresource:{launcher};#1"], check=True)
+    # Keep the original resource open for reading and write to a separate, writable copy.
+    with tempfile.TemporaryDirectory(dir=launcher.parent) as staging:
+        staged = Path(staging).resolve() / launcher.name
+        shutil.copyfile(launcher, staged)
+        subprocess.run([str(mt), "-nologo", f"-inputresource:{launcher.resolve()};#1",
+                        "-manifest", str(root / "scripts/windows-utf8.manifest"),
+                        f"-outputresource:{staged};#1"], check=True)
+        launcher.chmod(stat.S_IREAD | stat.S_IWRITE)
+        os.replace(staged, launcher)
 shutil.copy2(root / "LICENSE", args.destination / "deadliner" / "CLI-LICENSE")
