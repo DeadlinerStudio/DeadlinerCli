@@ -35,7 +35,7 @@ export DEADLINER_CORE_DIR=/absolute/path/to/DeadlinerCore
 在配套 Core checkout 中，使用 JDK 21 运行 Gradle wrapper 的
 `-PdesktopCliDir=<CLI 绝对路径> -PlifiMode=private :shared:stageDesktopCli`。
 在目标系统上运行 `python scripts/package-desktop.py <Core>/shared/build/desktop-cli dist`。
-每个压缩包自带该系统的运行时。Windows 默认数据目录为 `%LOCALAPPDATA%/Deadliner`。
+Windows 打包需要 Windows SDK 的 mt.exe；启动器使用 UTF-8 进程代码页以支持中文参数。每个压缩包自带该系统的运行时。Windows 默认数据目录为 `%LOCALAPPDATA%/Deadliner`。
 使用 `deadliner --json version` 可核对 Core 版本和 LiFi 是否编入。
 
 ## 日常使用
