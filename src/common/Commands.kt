@@ -7,7 +7,7 @@ import com.deadliner.sync.webdav.*
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.serialization.json.*
-import platform.Foundation.NSUUID
+import com.deadliner.platform.PlatformIdentity
 
 private val taskTimePattern = Regex("""[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})""")
 
@@ -53,7 +53,7 @@ suspend fun execute(db: DeadlinerDatabase, a: Arguments): JsonElement {
     if (op == "add") {
         val input = a.input()
         validateFields(input, true)
-        val uid = input.text("uid") ?: NSUUID().UUIDString
+        val uid = input.text("uid") ?: PlatformIdentity.newId()
         if (uid.isBlank() || uid.length > 200) invalid("uid must contain 1..200 characters")
         val title = input.text("title") ?: invalid("title is required")
         val candidate = patch(Task(uid, title, createdAt = now, updatedAt = now), input)

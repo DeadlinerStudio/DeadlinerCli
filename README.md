@@ -2,7 +2,7 @@
 
 Agent Native 的 Deadliner 命令行客户端。Kotlin/Native 直接编译接入 DeadlinerCore，复用 SQLite 仓储、任务状态机、change log、删除墓碑及 WebDAV V3 合并逻辑。
 
-首版支持 **macOS Apple Silicon**，不是 Linux/Windows 通用二进制。没有网络时本地任务管理仍可使用。CLI 不依赖 JVM 运行；源码构建需要 Go 1.20+、JDK、Xcode Command Line Tools 以及 Core 的 Gradle/Kotlin 工具链（当前 Core 配置还需要 Android SDK）。
+npm 首版支持 **macOS Apple Silicon**。GitHub Packages 同时提供 macOS ARM64、Linux x64 和 Windows x64 压缩包，内置 Java 运行时。解压后直接运行 Linux 的 `deadliner/bin/deadliner` 或 Windows 的 `deadliner/deadliner.exe`。没有网络时本地任务管理仍可使用。macOS 版本为原生可执行文件。
 
 ## 一键安装（macOS Apple Silicon）
 
@@ -16,7 +16,20 @@ deadliner schema
 
 卸载：`npm uninstall -g @deadlinerstudio/cli`。卸载保留用户数据目录。
 
-## 构建与运行
+## 从预编译包运行
+
+开发机首次构建前运行 `gh auth login -h github.com -s read:packages`。已登录时运行
+`gh auth refresh -h github.com -s read:packages`。账号需有组织 Core 包的 Read 权限。
+IDE 会读取 GitHub CLI 已保存的登录。也可通过环境变量 `GHCR_USERNAME` 和
+`GHCR_TOKEN` 提供本人具有 `read:packages` 的 classic PAT。
+
+在此仓执行 `npm run build`。脚本使用 Python 3 下载当前系统的二进制，按
+`core-package.lock.json` 校验版本与内容摘要。macOS 和 Linux 运行 `./bin/deadliner`，
+Windows 运行 `.\bin\deadliner.exe`。三端都可以运行 `npm test`。
+
+## macOS 源码构建
+
+构建本机任务服务需要 Go 1.20+。
 
 ```sh
 # 此聚合工作区默认使用 ../../DeadlinerCore，也可显式设置：
@@ -26,9 +39,17 @@ export DEADLINER_CORE_DIR=/absolute/path/to/DeadlinerCore
 ./bin/deadliner version
 ```
 
-构建将 Core 复制到忽略目录 `.build/core`，排除私有 Lifi overlay 并使用 stub；不修改原 Core checkout。可将 Gradle 参数传给构建脚本，例如 `./scripts/build.sh --offline`。Core 基线见 `core-revision.txt`；兼容更新后需重新运行集成测试。`version` 输出构建时 Core commit 标识；本地 Core 未提交变更也会进入源码快照，因此发布构建应使用干净 checkout。
+构建将 Core 复制到忽略目录 `.build/core`，默认使用 stub；设置 `DEADLINER_LIFI_MODE=private` 可编入 Core 已安装的 LiFi；不修改原 Core checkout。可将 Gradle 参数传给构建脚本，例如 `./scripts/build.sh --offline`。Core 基线见 `core-revision.txt`；兼容更新后需重新运行集成测试。`version` 输出构建时 Core commit 标识；本地 Core 未提交变更也会进入源码快照，因此发布构建应使用干净 checkout。
 
 手动安装时，把 `bin/deadliner` 和 `bin/deadliner-serve` 一起复制到 PATH 中已有的用户目录。默认数据库目录为 `~/.local/share/deadliner`，可设置 `DEADLINER_HOME` 或逐次传 `--data-dir /absolute/path`。目录含 SQLite 数据、持久设备 ID、进程锁，应作为一个独立 CLI profile 使用，不应指向正在使用的 App 数据库。备份时先停掉该 profile 的 CLI 进程，再复制整个目录。
+
+## Linux 和 Windows 源码构建
+
+在配套 Core checkout 中，使用 JDK 21 运行 Gradle wrapper 的
+`-PdesktopCliDir=<CLI 绝对路径> -PlifiMode=private :shared:stageDesktopCli`。
+在目标系统上运行 `python scripts/package-desktop.py <Core>/shared/build/desktop-cli dist`。
+Windows 打包需要 Go 和 Windows SDK 的 mt.exe。启动器将原始参数转给随包 Java 运行时，支持中文、引号和空字符串。每个压缩包自带该系统的运行时。Windows 默认数据目录为 `%LOCALAPPDATA%/Deadliner`。
+使用 `deadliner --json version` 可核对 Core 版本和 LiFi 是否编入。
 
 ## 日常使用
 

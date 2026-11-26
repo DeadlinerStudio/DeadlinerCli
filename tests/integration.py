@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Real CLI/Core SQLite integration and isolated conditional WebDAV HTTP tests."""
 import base64
-import fcntl
+import time
 import json
 import os
-import pty
+if os.name != "nt":
+    import pty
 import select
 from pathlib import Path
 import subprocess
@@ -13,7 +14,7 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-BIN = Path(os.environ.get('DEADLINER_TEST_BINARY', Path(__file__).resolve().parents[1] / 'bin/deadliner'))
+BIN = Path(os.environ.get('DEADLINER_TEST_BINARY', Path(__file__).resolve().parents[1] / 'bin' / ('deadliner.exe' if os.name == 'nt' else 'deadliner')))
 
 class WebDAV(BaseHTTPRequestHandler):
     blobs = {}
@@ -59,7 +60,7 @@ class WebDAV(BaseHTTPRequestHandler):
             self.blobs[self.path] = (payload, etag)
             self.reply(201, etag=etag)
 
-class Integration(unittest.TestCase):
+class CliTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.server = ThreadingHTTPServer(('127.0.0.1', 0), WebDAV)
@@ -79,7 +80,7 @@ class Integration(unittest.TestCase):
         env.update(DEADLINER_WEBDAV_URL=f'http://127.0.0.1:{self.server.server_port}/test',
                    DEADLINER_WEBDAV_USERNAME='user', DEADLINER_WEBDAV_PASSWORD=password)
         p = subprocess.run([str(BIN), '--data-dir', profile or self.a, *args],
-                           input=json.dumps(data) if data is not None else '', text=True,
+                           input=json.dumps(data) if data is not None else '', encoding="utf-8",
                            capture_output=True, env=env, timeout=45)
         self.assertEqual(p.returncode, code, (p.stdout, p.stderr))
         result = json.loads(p.stdout)  # Fails if any Core diagnostics contaminate stdout.
@@ -87,6 +88,9 @@ class Integration(unittest.TestCase):
         return result.get('data', result.get('error'))
     def add(self, uid='one', **kw):
         return self.runcli('task','add','--input','-',data={'uid':uid,'title':'任务一',**kw})['task']
+
+
+class Integration(CliTestCase):
     def test_crud_guards_dates_and_dry_run(self):
         original = self.add(dueAt='2026-11-10T09:00:00+08:00', note='原注释')
         self.assertEqual(self.runcli('task','get','one')['title'], '任务一')
@@ -103,23 +107,6 @@ class Integration(unittest.TestCase):
         self.runcli('task','delete','one')
         self.runcli('task','get','one',code=3)
         self.assertEqual(self.runcli('task','list')['total'], 0)
-    def test_portable_timestamp_input(self):
-        original = self.add(dueAt='2026-11-23T18:30:00+08:00')
-        for value in ('tomorrow', '2026-11-23T18:30:00', '2026-11-23T18:30:00+08',
-                      '+012026-11-23T18:30:00Z', '2026-02-30T18:30:00Z',
-                      '2026-11-23T24:00:00Z', '2026-11-23T18:30:00+25:00'):
-            with self.subTest(value=value):
-                error = self.runcli('task','update','one','--input','-',
-                                    data={'title':'must not persist','dueAt':value},code=2)
-                self.assertIn('dueAt', error['message'])
-                self.assertEqual(error['code'], 'INVALID_ARGUMENT')
-        self.runcli('task','add','--title','invalid','--start','2026-11-23',code=2)
-        self.assertEqual(self.runcli('task','get','one'), original)
-        self.assertEqual(self.runcli('task','list')['total'], 1)
-        for value in ('2026-11-23T18:30:00+08:00','2026-11-23T10:30:00Z','2026-11-23T02:30:00.123456789-08:00'):
-            result = self.runcli('task','update','one','--start',value,'--dry-run')
-            self.assertEqual(result['task']['startAt'], value)
-
     def test_idempotency_states_pagination(self):
         self.add(); self.assertEqual(self.runcli('task','add','--input','-',data={'uid':'one','title':'任务一'})['outcome'],'NO_OP')
         self.runcli('task','add','--input','-',data={'uid':'one','title':'changed'},code=4)
@@ -136,10 +123,18 @@ class Integration(unittest.TestCase):
         self.runcli('task','list','--limit','-1',code=2)
         self.runcli('task','get','one','--bogus','yes',code=2)
     def test_profile_lock(self):
-        self.add()
-        with open(self.a + '/cli.lock','w') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            self.runcli('task','list',code=4)
+        # The CLI holds the profile lock while it waits for the JSON payload.
+        with subprocess.Popen([str(BIN), '--data-dir', self.a, 'task', 'add', '--input', '-'],
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE) as holder:
+            try:
+                deadline = time.monotonic() + 20
+                while not (Path(self.a) / 'device-id').exists():
+                    self.assertIsNone(holder.poll(), 'lock holder exited during startup')
+                    self.assertLess(time.monotonic(), deadline, 'lock holder failed to open profile')
+                    time.sleep(0.05)
+                self.assertEqual(self.runcli('task','list',code=4)['code'], 'BUSY')
+            finally:
+                holder.communicate(b'{}', timeout=20)
         self.runcli('task','list')
     def test_webdav_two_devices_tombstones_and_retry(self):
         self.add()
@@ -167,7 +162,7 @@ class Integration(unittest.TestCase):
         self.runcli('task','get','one',profile=self.b)
     def human(self, *args, tty=False, code=0):
         command = [str(BIN), '--data-dir', self.a, *args]
-        if tty:
+        if tty and os.name != "nt":
             master, slave = pty.openpty()
             chunks = []
             finished = threading.Event()
@@ -193,7 +188,7 @@ class Integration(unittest.TestCase):
             output = b''.join(chunks).decode()
             error = p.stderr.decode()
         else:
-            p = subprocess.run(command, input='', text=True, capture_output=True, timeout=20)
+            p = subprocess.run(command, input='', encoding="utf-8", capture_output=True, timeout=20)
             output, error = p.stdout, p.stderr
         self.assertEqual(p.returncode, code, (output, error))
         return output, error
@@ -201,7 +196,7 @@ class Integration(unittest.TestCase):
     def test_human_output_and_tty_selection(self):
         self.runcli('task', 'add', '--uid', 'human', '--title', '周报', '--note', '附上数据',
                     '--due', '2026-11-11T18:00:00+08:00')
-        output, error = self.human('task', 'list', tty=True)
+        output, error = self.human(*(['--human'] if os.name == 'nt' else []), 'task', 'list', tty=True)
         self.assertIn('[待办] 周报', output)
         self.assertIn('ID：human', output)
         self.assertIn('时间显示：', output)

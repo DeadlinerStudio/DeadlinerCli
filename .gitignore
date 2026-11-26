@@ -142,3 +142,5 @@ vite.config.ts.timestamp-*
 bin/
 __pycache__/
 *.tgz
+
+/.deadliner-core/

@@ -72,11 +72,12 @@ fun JsonObject.flag(key: String): Boolean? {
 const val taskTimeFormat = "YYYY-MM-DDTHH:mm:ss[.fraction] with Z or ±HH:MM (e.g. 2026-11-23T18:30:00+08:00)"
 
 val commandSchema: JsonObject get() = buildJsonObject {
-    put("name", "deadliner"); put("protocolVersion", 1); put("platform", "macos-arm64")
+    put("name", "deadliner"); put("protocolVersion", 1); put("platform", cliPlatform)
     put("output", "TTY defaults to human output; pipes and schema default to JSON. --json/--human override. No interactive prompts.")
     put("input", "task add/update --input - reads a strict JSON object from stdin")
     putJsonArray("commands") {
-        listOf("schema", "version", "serve", "task list", "task get UID", "task add", "task update UID",
+        if (cliPlatform == "macos-arm64") add("serve")
+        listOf("schema", "version", "task list", "task get UID", "task add", "task update UID",
             "task delete UID", "task complete UID", "task reopen UID", "task archive UID",
             "task abandon UID", "task unarchive UID", "sync status", "sync run").forEach { add(it) }
     }
@@ -91,7 +92,7 @@ val commandSchema: JsonObject get() = buildJsonObject {
     }
     putJsonObject("options") {
         put("global", "--data-dir ABSOLUTE_PATH; --json; --human; --verbose")
-        put("serve", "serve --allow-writes enables version-checked task mutations for this session")
+        if (cliPlatform == "macos-arm64") put("serve", "serve --allow-writes enables version-checked task mutations for this session")
         put("list", "--state active|completed|archived|abandoned|abandonedArchived --query TEXT --limit 1..1000 --offset N")
         put("fieldOptions", "add/update: --title TEXT --note TEXT --start RFC3339 --due RFC3339 --clear-start --clear-due; add: --uid ID; mutually exclusive with --input")
         put("mutations", "--dry-run; update/delete/actions: --if-updated-at RFC3339")

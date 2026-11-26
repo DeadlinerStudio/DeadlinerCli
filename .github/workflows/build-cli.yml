@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: DeadlinerStudio/DeadlinerCore
-          ref: 7ce16d278753e8550b0e40a7483f4ad2170dfdfd
+          ref: e1f167d5fb2e58ffe0708a5ab49aad303fde8be8
           path: core
       - uses: actions/setup-go@v5
         with:
@@ -43,6 +43,7 @@ jobs:
         working-directory: cli
         run: |
           python3 tests/integration.py
+          python3 tests/portable_timestamps.py
           python3 tests/serve.py
       - name: Pack verified executables
         working-directory: cli
