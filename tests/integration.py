@@ -14,7 +14,7 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-BIN = Path(os.environ.get('DEADLINER_TEST_BINARY', Path(__file__).resolve().parents[1] / 'bin/deadliner'))
+BIN = Path(os.environ.get('DEADLINER_TEST_BINARY', Path(__file__).resolve().parents[1] / 'bin' / ('deadliner.exe' if os.name == 'nt' else 'deadliner')))
 
 class WebDAV(BaseHTTPRequestHandler):
     blobs = {}

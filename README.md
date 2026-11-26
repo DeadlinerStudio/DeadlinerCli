@@ -2,7 +2,7 @@
 
 Agent Native 的 Deadliner 命令行客户端。Kotlin/Native 直接编译接入 DeadlinerCore，复用 SQLite 仓储、任务状态机、change log、删除墓碑及 WebDAV V3 合并逻辑。
 
-npm 首版支持 **macOS Apple Silicon**。Core Actions 另行构建 Linux x64 和 Windows x64 压缩包，内置 Java 运行时。解压后直接运行 Linux 的 `deadliner/bin/deadliner` 或 Windows 的 `deadliner/deadliner.exe`。没有网络时本地任务管理仍可使用。CLI 不依赖 JVM 运行；源码构建需要 JDK、Xcode Command Line Tools 以及 Core 的 Gradle/Kotlin 工具链（当前 Core 配置还需要 Android SDK）。
+npm 首版支持 **macOS Apple Silicon**。GitHub Packages 同时提供 macOS ARM64、Linux x64 和 Windows x64 压缩包，内置 Java 运行时。解压后直接运行 Linux 的 `deadliner/bin/deadliner` 或 Windows 的 `deadliner/deadliner.exe`。没有网络时本地任务管理仍可使用。macOS 版本为原生可执行文件。
 
 ## 一键安装（macOS Apple Silicon）
 
@@ -16,7 +16,18 @@ deadliner schema
 
 卸载：`npm uninstall -g @deadlinerstudio/cli`。卸载保留用户数据目录。
 
-## 构建与运行
+## 从预编译包运行
+
+开发机首次构建前运行 `gh auth login -h github.com -s read:packages`。已登录时运行
+`gh auth refresh -h github.com -s read:packages`。账号需有组织 Core 包的 Read 权限。
+IDE 会读取 GitHub CLI 已保存的登录。也可通过环境变量 `GHCR_USERNAME` 和
+`GHCR_TOKEN` 提供本人具有 `read:packages` 的 classic PAT。
+
+在此仓执行 `npm run build`。脚本使用 Python 3 下载当前系统的二进制，按
+`core-package.lock.json` 校验版本与内容摘要。macOS 和 Linux 运行 `./bin/deadliner`，
+Windows 运行 `.\bin\deadliner.exe`。三端都可以运行 `npm test`。
+
+## macOS 源码构建
 
 ```sh
 # 此聚合工作区默认使用 ../../DeadlinerCore，也可显式设置：
@@ -35,7 +46,7 @@ export DEADLINER_CORE_DIR=/absolute/path/to/DeadlinerCore
 在配套 Core checkout 中，使用 JDK 21 运行 Gradle wrapper 的
 `-PdesktopCliDir=<CLI 绝对路径> -PlifiMode=private :shared:stageDesktopCli`。
 在目标系统上运行 `python scripts/package-desktop.py <Core>/shared/build/desktop-cli dist`。
-Windows 打包需要 Windows SDK 的 mt.exe；启动器使用 UTF-8 进程代码页以支持中文参数。每个压缩包自带该系统的运行时。Windows 默认数据目录为 `%LOCALAPPDATA%/Deadliner`。
+Windows 打包需要 Go 和 Windows SDK 的 mt.exe。启动器将原始参数转给随包 Java 运行时，支持中文、引号和空字符串。每个压缩包自带该系统的运行时。Windows 默认数据目录为 `%LOCALAPPDATA%/Deadliner`。
 使用 `deadliner --json version` 可核对 Core 版本和 LiFi 是否编入。
 
 ## 日常使用

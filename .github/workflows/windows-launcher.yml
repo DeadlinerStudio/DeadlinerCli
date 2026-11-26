@@ -2,7 +2,7 @@ name: Check Windows launcher arguments
 
 on:
   push:
-    branches: [codex/desktop-cli-artifacts]
+    branches: [main, codex/desktop-cli-artifacts]
     paths: [scripts/package-desktop.py, scripts/launcher_windows.go, scripts/windows-utf8.manifest, .github/workflows/windows-launcher.yml]
   pull_request:
     paths: [scripts/package-desktop.py, scripts/launcher_windows.go, scripts/windows-utf8.manifest]
