@@ -19,6 +19,8 @@
   },
   "files": [
     "bin/deadliner",
+    "bin/deadliner-serve",
+    "server/",
     "core-revision.txt",
     "src/",
     "scripts/",
@@ -30,6 +32,7 @@
     "build": "node scripts/python.cjs scripts/core_package.py cli bin --lock core-package.lock.json",
     "test": "node scripts/python.cjs tests/integration.py",
     "prepack": "node scripts/check-package.cjs",
-    "build:source": "sh scripts/build.sh"
+    "build:source": "sh scripts/build.sh",
+    "postinstall": "sh scripts/enable-macos-autostart.sh --global-install"
   }
 }

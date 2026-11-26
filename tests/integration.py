@@ -60,7 +60,7 @@ class WebDAV(BaseHTTPRequestHandler):
             self.blobs[self.path] = (payload, etag)
             self.reply(201, etag=etag)
 
-class Integration(unittest.TestCase):
+class CliTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.server = ThreadingHTTPServer(('127.0.0.1', 0), WebDAV)
@@ -88,6 +88,9 @@ class Integration(unittest.TestCase):
         return result.get('data', result.get('error'))
     def add(self, uid='one', **kw):
         return self.runcli('task','add','--input','-',data={'uid':uid,'title':'任务一',**kw})['task']
+
+
+class Integration(CliTestCase):
     def test_crud_guards_dates_and_dry_run(self):
         original = self.add(dueAt='2026-11-10T09:00:00+08:00', note='原注释')
         self.assertEqual(self.runcli('task','get','one')['title'], '任务一')

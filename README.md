@@ -29,6 +29,8 @@ Windows 运行 `.\bin\deadliner.exe`。三端都可以运行 `npm test`。
 
 ## macOS 源码构建
 
+构建本机任务服务需要 Go 1.20+。
+
 ```sh
 # 此聚合工作区默认使用 ../../DeadlinerCore，也可显式设置：
 export DEADLINER_CORE_DIR=/absolute/path/to/DeadlinerCore
@@ -39,7 +41,7 @@ export DEADLINER_CORE_DIR=/absolute/path/to/DeadlinerCore
 
 构建将 Core 复制到忽略目录 `.build/core`，默认使用 stub；设置 `DEADLINER_LIFI_MODE=private` 可编入 Core 已安装的 LiFi；不修改原 Core checkout。可将 Gradle 参数传给构建脚本，例如 `./scripts/build.sh --offline`。Core 基线见 `core-revision.txt`；兼容更新后需重新运行集成测试。`version` 输出构建时 Core commit 标识；本地 Core 未提交变更也会进入源码快照，因此发布构建应使用干净 checkout。
 
-把 `bin/deadliner` 复制到 PATH 中已有的用户目录即可。默认数据库目录为 `~/.local/share/deadliner`，可设置 `DEADLINER_HOME` 或逐次传 `--data-dir /absolute/path`。目录含 SQLite 数据、持久设备 ID、进程锁，应作为一个独立 CLI profile 使用，不应指向正在使用的 App 数据库。备份时先停掉该 profile 的 CLI 进程，再复制整个目录。
+手动安装时，把 `bin/deadliner` 和 `bin/deadliner-serve` 一起复制到 PATH 中已有的用户目录。默认数据库目录为 `~/.local/share/deadliner`，可设置 `DEADLINER_HOME` 或逐次传 `--data-dir /absolute/path`。目录含 SQLite 数据、持久设备 ID、进程锁，应作为一个独立 CLI profile 使用，不应指向正在使用的 App 数据库。备份时先停掉该 profile 的 CLI 进程，再复制整个目录。
 
 ## Linux 和 Windows 源码构建
 
@@ -83,6 +85,7 @@ deadliner task abandon report-20261110
 deadliner task delete report-20261110 --dry-run
 ```
 
+- 新写入的 `startAt` 和 `dueAt` 使用四位年份、大写 T、时分秒和明确时区（大写 Z 或 ±HH:MM），可选 1–9 位小数秒。例如 `2026-11-23T18:30:00+08:00`。自然语言、无时区值、简写偏移（如 +08）和不存在的日期会返回退出码 2，整次写入取消。清空时间使用 JSON null 或清除选项。
 - 更新是局部 patch；未知字段、非法类型和空标题均拒绝。`null` 清除日期/分类，`""` 清空 note。日期需 RFC3339 且有时区。
 - 任务状态只能通过动作修改；动作约束由 Core 决定。`complete`/`abandon` 不会在重试时切回 active。
 - add 可传稳定 `uid`；相同意图的重试返回 `NO_OP`，UID 内容冲突返回 4。任务后来被修改/删除时同样返回冲突，不复活旧数据。
@@ -142,3 +145,16 @@ python3 tests/integration.py
 在 Apple Silicon 上构建并运行集成测试后执行 `npm pack`，得到 `deadlinerstudio-cli-0.2.0.tgz`。prepack 会检查 Mach-O 架构、CLI 版本和 Core commit；将包与 SHA256SUMS 上传到同版本 GitHub Release。安装包不包含开发缓存或账号信息。
 
 Core 对应源码：[DeadlinerCore](https://github.com/DeadlinerStudio/DeadlinerCore)，准确提交见 `core-revision.txt`；CLI 对应源代码随安装包附带，也保存在 Release tag 中。
+
+## Mac 任务连接
+
+运行 `deadliner serve`（也支持 `--data-dir /absolute/path`），在 Mac 客户端「前往 → CLI 任务（只读）」粘贴终端显示的会话连接码。保持终端开启，在另一个终端修改同一 profile 的任务；打开的窗口每两秒检查一次更新。新 profile 先运行一次 `deadliner task list` 初始化。按 Ctrl+C 断开，下次启动会生成新连接码。
+
+v1 仅监听随机端口的 IPv4 回环地址。连接码为 `端口.64位十六进制令牌`，仅在本次服务进程存活期间有效。客户端用 Bearer 令牌访问 `GET /v1/tasks`，响应包含 `version: 1` 和 `items`；可携带上次的 ETag，未变更时返回 304。服务通过系统 SQLite 的只读连接读取一次已提交的任务快照，包含 UID、标题、备注、状态、开始及截止时间，排除删除墓碑。其他 CLI 命令继续使用原来的 profile 锁。
+
+使用 npm 为当前用户全局安装时会自动登记启动器。手动安装或跳过安装脚本时，可在能运行 `deadliner` 的终端执行一次 `sh "$(npm root -g)/@deadlinerstudio/cli/scripts/enable-macos-autostart.sh"`。启动器使用此次 PATH 选中的 CLI 和数据目录，兼容 fnm 的临时 PATH；切换 CLI 安装或 profile 后可重新运行。关闭窗口会停止它启动的服务。手动配对仍可单独使用。移除 `~/Library/Application Scripts/com.deadliner.macos/deadliner-readonly` 即可关闭自动启动。
+
+
+支持原生任务整合的 Mac 客户端可在后台请求可写会话。手动配对可用 `deadliner serve --allow-writes`。GET 响应的 `writable` 表明会话权限，每条任务带有 `updatedAt`。可写会话接受同一端点的 POST，请求形如 `{"op":"update","uid":"…","revision":"…","fields":{"note":"已复核"}}`。创建使用 `add` 和稳定 UID。编辑和状态操作须传入上次读取的任务版本；若终端已修改，服务返回 409。写入通过原生 CLI 执行，沿用其 profile 锁、日期校验和状态转换。
+
+支持后台整合的客户端通过同一 Bearer 会话访问 `/v1/task-peer`。HEAD 返回任务及分类版本的 ETag，POST 通过 Core 合并任务、子任务、分类和删除标记，并返回合并后的任务快照。双方独有的 UID 均保留。其他资源由各端独立管理。

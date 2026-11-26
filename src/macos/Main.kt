@@ -3,7 +3,7 @@ package com.deadliner.cli
 
 import com.deadliner.db.DeadlinerDatabase
 import com.deadliner.db.MacosDatabaseDriverFactory
-import kotlinx.cinterop.toKString
+import kotlinx.cinterop.*
 import platform.Foundation.*
 import platform.posix.*
 import kotlin.system.exitProcess
@@ -19,7 +19,27 @@ fun main(args: Array<String>) {
     fflush(stdout)
     dup2(STDERR_FILENO, STDOUT_FILENO)
     val invocation = CliInvocation(terminal)
-    val response = invocation.run(args) {
+    val response = invocation.run(args, serve = { a, jsonOutput ->
+        a.validate(setOf("allow-writes"))
+        val profile = profilePath(a)
+        if ("allow-writes" in a.options && access("$profile/deadliner.db", F_OK) != 0) withDatabase(a) { Unit }
+        val binary = NSBundle.mainBundle.executablePath ?: throw CliError("STORAGE_ERROR", "Cannot locate CLI executable", 1)
+        val helper = NSURL.fileURLWithPath(binary).URLByResolvingSymlinksInPath!!.path!!.substringBeforeLast('/') + "/deadliner-serve"
+        fflush(stdout)
+        dup2(fileno(output), STDOUT_FILENO)
+        fclose(output)
+        memScoped {
+            val argv = allocArray<CPointerVar<ByteVar>>(5)
+            argv[0] = helper.cstr.ptr
+            argv[1] = profile.cstr.ptr
+            argv[2] = (if (jsonOutput) "json" else "human").cstr.ptr
+            argv[3] = (if ("allow-writes" in a.options) "write" else "read").cstr.ptr
+            argv[4] = null
+            execv(helper, argv)
+        }
+        fputs("Cannot start deadliner-serve; install it next to deadliner\n", stderr)
+        exitProcess(1)
+    }) {
         val quiet = open("/dev/null", O_WRONLY)
         if (quiet >= 0) { dup2(quiet, STDOUT_FILENO); close(quiet) }
     }
@@ -29,10 +49,15 @@ fun main(args: Array<String>) {
     exitProcess(invocation.status)
 }
 
-fun <T> withDatabase(a: Arguments, block: (DeadlinerDatabase) -> T): T {
+private fun profilePath(a: Arguments): String {
     val path = a.options["data-dir"] ?: env("DEADLINER_HOME")
         ?: ((env("HOME") ?: invalid("HOME is unset; supply --data-dir")) + "/.local/share/deadliner")
     if (!path.startsWith('/')) invalid("Data directory must be absolute")
+    return path
+}
+
+fun <T> withDatabase(a: Arguments, block: (DeadlinerDatabase) -> T): T {
+    val path = profilePath(a)
     umask(63u) // 0077: database and identity are private to the current user.
     if (!NSFileManager.defaultManager.createDirectoryAtPath(path, true, null, null))
         throw CliError("STORAGE_ERROR", "Cannot create data directory", 1)

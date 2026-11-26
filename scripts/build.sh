@@ -34,4 +34,5 @@ PY
 CORE_COMMIT=$(git -C "$CORE" rev-parse HEAD 2>/dev/null || echo unknown)
 "$ROOT/.build/core/gradlew" -PdeadlinerCoreCommit="$CORE_COMMIT" -PdeadlinerCoreCompileBranch=cli -p "$ROOT/.build/core" -PlifiMode="$MODE" :shared:linkDeadlinerDebugExecutableMacosArm64 "$@"
 cp "$ROOT/.build/core/shared/build/bin/macosArm64/deadlinerDebugExecutable/deadliner.kexe" "$ROOT/bin/deadliner"
+go build -trimpath -o "$ROOT/bin/deadliner-serve" "$ROOT/server/main.go"
 echo "Built $ROOT/bin/deadliner"

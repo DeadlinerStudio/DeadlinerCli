@@ -1,0 +1,64 @@
+name: Build CLI prototype
+on:
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: cli-prototype-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: cli
+      - uses: actions/checkout@v4
+        with:
+          repository: DeadlinerStudio/DeadlinerCore
+          ref: e1f167d5fb2e58ffe0708a5ab49aad303fde8be8
+          path: core
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Bootstrap Kotlin/Native on the clean runner
+        working-directory: core
+        run: ./gradlew -PlifiMode=stub :shared:downloadKotlinNativeDistribution --console=plain
+      - name: Build native executables
+        working-directory: cli
+        env:
+          DEADLINER_CORE_DIR: ${{ github.workspace }}/core
+        run: sh scripts/build.sh
+      - name: Run CLI and server integration tests
+        working-directory: cli
+        run: |
+          python3 tests/integration.py
+          python3 tests/portable_timestamps.py
+          python3 tests/serve.py
+      - name: Pack verified executables
+        working-directory: cli
+        run: npm pack --pack-destination "$RUNNER_TEMP"
+      - name: Verify global install registers the sandbox launcher
+        env:
+          HOME: ${{ runner.temp }}/peer-home
+        run: |
+          mkdir -p "$HOME"
+          npm install --global --no-fund --no-audit --prefix "$HOME/npm" "$RUNNER_TEMP"/deadlinerstudio-cli-*.tgz
+          hook="$HOME/Library/Application Scripts/com.deadliner.macos"
+          test -x "$hook/deadliner-readonly"
+          test "$(realpath "$hook/deadliner-cli-binary")" = "$(realpath "$HOME/npm/bin/deadliner")"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deadliner-cli-arm64
+          path: ${{ runner.temp }}/deadlinerstudio-cli-*.tgz
+          if-no-files-found: error

@@ -12,7 +12,7 @@ class CliInvocation(private val terminal: Boolean) {
     var status = 0
         private set
 
-    fun run(args: Array<String>, quietLogs: () -> Unit): JsonObject {
+    fun run(args: Array<String>, serve: ((Arguments, Boolean) -> Nothing)? = null, quietLogs: () -> Unit): JsonObject {
         return try {
             val a = Arguments(args)
             words = a.words
@@ -26,6 +26,8 @@ class CliInvocation(private val terminal: Boolean) {
                     a.validate(emptySet())
                     buildJsonObject { put("cli", "0.2.0"); put("core", KmpBuildMetadata.coreVersion); put("lifi", com.deadliner.interfaces.LifiAvailability.isAvailable) }
                 }
+                a.words == listOf("serve") && serve != null -> serve(a, jsonOutput)
+                a.words == listOf("task-peer-exchange") && serve != null -> withDatabase(a) { db -> exchangeTasks(db, a) }
                 else -> withDatabase(a) { db -> runBlocking { execute(db, a) } }
             }
             envelope(data)
