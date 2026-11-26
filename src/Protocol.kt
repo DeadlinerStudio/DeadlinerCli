@@ -22,7 +22,7 @@ class Arguments(args: Array<String>) {
             else {
                 val key = a.removePrefix("--")
                 if (key in options) invalid("Duplicate option: $a")
-                options[key] = if (key in setOf("dry-run", "help", "json", "human", "verbose", "clear-due", "clear-start")) "true"
+                options[key] = if (key in setOf("allow-writes", "dry-run", "help", "json", "human", "verbose", "clear-due", "clear-start")) "true"
                 else args.getOrNull(i++) ?: invalid("Missing value for $a")
             }
         }
@@ -69,6 +69,8 @@ fun JsonObject.flag(key: String): Boolean? {
     return v.booleanOrNull ?: invalid("$key must be boolean")
 }
 
+const val taskTimeFormat = "YYYY-MM-DDTHH:mm:ss[.fraction] with Z or ±HH:MM (e.g. 2026-11-23T18:30:00+08:00)"
+
 val commandSchema: JsonObject get() = buildJsonObject {
     put("name", "deadliner"); put("protocolVersion", 1); put("platform", "macos-arm64")
     put("output", "TTY defaults to human output; pipes and schema default to JSON. --json/--human override. No interactive prompts.")
@@ -82,13 +84,14 @@ val commandSchema: JsonObject get() = buildJsonObject {
         put("uid", "string, optional on add only; stable retry identifier")
         put("title", "nonblank string; required on add")
         put("note", "string")
-        put("startAt", "RFC3339 instant with timezone or null")
-        put("dueAt", "RFC3339 instant with timezone or null")
+        put("startAt", "$taskTimeFormat, or null")
+        put("dueAt", "$taskTimeFormat, or null")
         put("categoryUid", "string or null")
         put("isStarred", "boolean")
     }
     putJsonObject("options") {
         put("global", "--data-dir ABSOLUTE_PATH; --json; --human; --verbose")
+        put("serve", "serve --allow-writes enables version-checked task mutations for this session")
         put("list", "--state active|completed|archived|abandoned|abandonedArchived --query TEXT --limit 1..1000 --offset N")
         put("fieldOptions", "add/update: --title TEXT --note TEXT --start RFC3339 --due RFC3339 --clear-start --clear-due; add: --uid ID; mutually exclusive with --input")
         put("mutations", "--dry-run; update/delete/actions: --if-updated-at RFC3339")
