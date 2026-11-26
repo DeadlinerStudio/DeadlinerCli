@@ -3,9 +3,9 @@ name: Check Windows launcher arguments
 on:
   push:
     branches: [codex/desktop-cli-artifacts]
-    paths: [scripts/package-desktop.py, scripts/windows-utf8.manifest, .github/workflows/windows-launcher.yml]
+    paths: [scripts/package-desktop.py, scripts/launcher_windows.go, scripts/windows-utf8.manifest, .github/workflows/windows-launcher.yml]
   pull_request:
-    paths: [scripts/package-desktop.py, scripts/windows-utf8.manifest]
+    paths: [scripts/package-desktop.py, scripts/launcher_windows.go, scripts/windows-utf8.manifest]
 
 permissions:
   contents: read
@@ -24,9 +24,14 @@ jobs:
         shell: pwsh
         run: |
           mkdir classes, jars
-          'package com.deadliner.cli; public class MainKt { public static void main(String[] args) { System.out.print(args[0]); } }' | Set-Content MainKt.java
+          'package com.deadliner.cli; public class MainKt { public static void main(String[] args) { System.out.print(args.length + ":" + String.join("|", args)); } }' | Set-Content MainKt.java
           javac -d classes MainKt.java
           jar cf jars/deadliner-cli.jar -C classes .
           python scripts/package-desktop.py jars dist
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          python -c "import subprocess; value='任务 🚀'; assert subprocess.check_output(['dist/deadliner/deadliner.exe',value]).decode('utf-8') == value"
+          @'
+          import subprocess
+          args = ['任务 🚀', '', 'a b', 'q"uote', '']
+          result = subprocess.check_output(['dist/deadliner/deadliner.exe', *args]).decode('utf-8')
+          assert result == '5:' + '|'.join(args), repr(result)
+          '@ | python -
