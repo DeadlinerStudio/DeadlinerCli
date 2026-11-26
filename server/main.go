@@ -9,24 +9,33 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 )
 
 // One SELECT gives one committed snapshot, including changes still in SQLite's WAL.
 // Keep this projection small: habits, credentials and sync history are outside v1.
-const tasksSQL = `SELECT uid, title, note, state, start_at AS startAt, due_at AS dueAt
+const tasksSQL = `SELECT uid, title, note, state, start_at AS startAt, due_at AS dueAt, updated_at AS updatedAt
 FROM task WHERE is_deleted = 0 ORDER BY title, uid`
 
 func main() {
-	if len(os.Args) != 3 {
+	if len(os.Args) != 4 || (os.Args[3] != "read" && os.Args[3] != "write") {
 		log.Fatal("expected profile path and output mode")
 	}
+	writable := os.Args[3] == "write"
+	executable, err := os.Executable()
+	if err != nil {
+		log.Fatal(err)
+	}
+	cli := filepath.Join(filepath.Dir(executable), "deadliner")
 	path := filepath.Join(os.Args[1], "deadliner.db")
 	if _, err := os.Stat(path); err != nil {
 		log.Fatal("Open the CLI profile with deadliner task list first: ", err)
@@ -44,14 +53,19 @@ func main() {
 	if os.Args[2] == "json" {
 		json.NewEncoder(os.Stdout).Encode(map[string]any{"ok": true, "version": 1, "data": map[string]string{"connectionCode": code}})
 	} else {
-		fmt.Printf("在 Mac 的「前往 → CLI 任务（只读）」中输入连接码：\n%s\n按 Ctrl+C 停止服务。\n", code)
+		mode := "只读"
+		if writable {
+			mode = "可编辑"
+		}
+		fmt.Printf("在 Mac 的 CLI 任务界面输入连接码（%s）：\n%s\n按 Ctrl+C 停止服务。\n", mode, code)
 	}
+	var peer taskPeer
 	server := http.Server{
-		ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second,
+		ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 30 * time.Second,
 		IdleTimeout: 15 * time.Second, MaxHeaderBytes: 8192,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "no-store")
-			if r.URL.Path != "/v1/tasks" {
+			if r.URL.Path != "/v1/tasks" && !(writable && r.URL.Path == "/v1/task-peer") {
 				http.NotFound(w, r)
 				return
 			}
@@ -59,8 +73,20 @@ func main() {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
+			if r.URL.Path == "/v1/task-peer" {
+				peer.serve(w, r, cli, os.Args[1], path)
+				return
+			}
+			if writable && r.Method == http.MethodPost {
+				writeTask(w, r, cli, os.Args[1])
+				return
+			}
 			if r.Method != http.MethodGet {
-				w.Header().Set("Allow", "GET")
+				if writable {
+					w.Header().Set("Allow", "GET, POST")
+				} else {
+					w.Header().Set("Allow", "GET")
+				}
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
 			}
@@ -81,10 +107,158 @@ func main() {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(struct {
-				Version int             `json:"version"`
-				Items   json.RawMessage `json:"items"`
-			}{1, items})
+				Version  int             `json:"version"`
+				Writable bool            `json:"writable"`
+				Items    json.RawMessage `json:"items"`
+			}{1, writable, items})
 		}),
 	}
 	log.Fatal(server.Serve(listener))
+}
+
+// Dispatch only task verbs. The CLI performs revision checks and the write together
+// inside its profile lock and routes every accepted mutation through Core.
+func writeTask(w http.ResponseWriter, r *http.Request, cli, profile string) {
+	var m struct {
+		Op       string                     `json:"op"`
+		UID      string                     `json:"uid"`
+		Revision string                     `json:"revision"`
+		Fields   map[string]json.RawMessage `json:"fields"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&m); err != nil || decoder.Decode(&struct{}{}) != io.EOF ||
+		m.UID == "" || strings.HasPrefix(m.UID, "--") || strings.ContainsRune(m.UID, 0) {
+		http.Error(w, "Invalid task request", http.StatusBadRequest)
+		return
+	}
+	args := []string{"--data-dir", profile, "--json", "task", m.Op}
+	var input []byte
+	switch m.Op {
+	case "add":
+		if m.Revision != "" || m.Fields == nil {
+			http.Error(w, "Invalid creation", 400)
+			return
+		}
+		m.Fields["uid"], _ = json.Marshal(m.UID)
+	case "update", "complete", "reopen", "abandon", "archive", "unarchive", "delete":
+		if m.Revision == "" || strings.ContainsRune(m.Revision, 0) {
+			http.Error(w, "Missing task revision", http.StatusPreconditionRequired)
+			return
+		}
+		args = append(args, m.UID, "--if-updated-at", m.Revision)
+	default:
+		http.Error(w, "Unknown task operation", 400)
+		return
+	}
+	if m.Op == "add" || m.Op == "update" {
+		if len(m.Fields) == 0 {
+			http.Error(w, "Empty task fields", 400)
+			return
+		}
+		input, _ = json.Marshal(m.Fields)
+		args = append(args, "--input", "-")
+	} else if len(m.Fields) > 0 {
+		http.Error(w, "Unexpected task fields", 400)
+		return
+	}
+	cmd := exec.CommandContext(r.Context(), cli, args...)
+	cmd.Stdin = bytes.NewReader(input)
+	result, err := cmd.Output()
+	status := http.StatusOK
+	if err != nil {
+		failure, ok := err.(*exec.ExitError)
+		if !ok || !json.Valid(result) {
+			http.Error(w, "CLI unavailable", 503)
+			return
+		}
+		switch failure.ExitCode() {
+		case 2:
+			status = http.StatusBadRequest
+		case 3:
+			status = http.StatusNotFound
+		case 4:
+			status = http.StatusConflict
+		default:
+			status = http.StatusServiceUnavailable
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(result)
+}
+
+// Cache the logical revision across idle polls. Any database or WAL change invalidates
+// the cheap filesystem key; only task/category versions affect the returned ETag.
+type taskPeer struct {
+	mu    sync.Mutex
+	stamp string
+	etag  string
+}
+
+func (p *taskPeer) revision(path string) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var stamp string
+	for _, name := range []string{path, path + "-wal"} {
+		f, err := os.Stat(name)
+		if err != nil {
+			if os.IsNotExist(err) && name != path {
+				continue
+			}
+			return "", err
+		}
+		stamp += fmt.Sprintf("%s:%d:%d;", name, f.Size(), f.ModTime().UnixNano())
+	}
+	if p.etag != "" && stamp == p.stamp {
+		return p.etag, nil
+	}
+	const revisions = `SELECT entity_kind,entity_uid,ts,ctr,dev FROM legacy_v2_version WHERE entity_kind IN ('category','task') ORDER BY 1,2;
+SELECT uid,updated_at,is_deleted FROM task ORDER BY uid;
+SELECT uid,updated_at,is_deleted FROM category ORDER BY uid;
+SELECT uid,updated_at,is_deleted FROM task_subtask ORDER BY uid;`
+	result, err := exec.Command("/usr/bin/sqlite3", "-batch", "-init", "/dev/null", "-readonly", "-json", path, revisions).Output()
+	if err != nil {
+		return "", err
+	}
+	p.stamp, p.etag = stamp, fmt.Sprintf("\"%x\"", sha256.Sum256(result))
+	return p.etag, nil
+}
+
+func (p *taskPeer) serve(w http.ResponseWriter, r *http.Request, cli, profile, path string) {
+	switch r.Method {
+	case http.MethodHead:
+		tag, err := p.revision(path)
+		if err != nil {
+			w.WriteHeader(503)
+			return
+		}
+		w.Header().Set("ETag", tag)
+		if tag == r.Header.Get("If-None-Match") {
+			w.WriteHeader(304)
+		}
+	case http.MethodPost:
+		data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 32<<20))
+		if err != nil {
+			w.WriteHeader(413)
+			return
+		}
+		var compact bytes.Buffer
+		if json.Compact(&compact, data) != nil {
+			w.WriteHeader(400)
+			return
+		}
+		cmd := exec.CommandContext(r.Context(), cli, "--json", "--data-dir", profile, "task-peer-exchange")
+		cmd.Stdin = &compact
+		result, err := cmd.Output()
+		if err != nil {
+			http.Error(w, "Task exchange unavailable", 503)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(result)
+	default:
+		w.Header().Set("Allow", "HEAD, POST")
+		w.WriteHeader(405)
+	}
 }

@@ -35,6 +35,84 @@ class ServeTest(unittest.TestCase):
                 finally:
                     if proc.poll() is None: proc.terminate()
 
+    def test_revision_checked_round_trip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cli = [str(BIN), "--json", "--data-dir", directory, "task"]
+            def task(*args):
+                return json.loads(subprocess.check_output(cli + list(args)))["data"]
+            task("list")
+            with subprocess.Popen(cli[:-1] + ["serve", "--allow-writes"], stdout=subprocess.PIPE, text=True) as server:
+                try:
+                    port, token = json.loads(server.stdout.readline())["data"]["connectionCode"].split(".")
+                    url = f"http://127.0.0.1:{port}/v1/tasks"
+                    headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
+                    def write(op, **payload):
+                        body = json.dumps(dict(op=op, uid="fixture", **payload)).encode()
+                        with urlopen(Request(url, data=body, headers=headers), timeout=10) as response:
+                            return json.load(response)
+                    def row():
+                        with urlopen(Request(url, headers=headers), timeout=5) as response:
+                            snapshot = json.load(response)
+                            self.assertTrue(snapshot["writable"])
+                            return snapshot["items"][0]
+                    for _ in range(2):
+                        self.assertTrue(write("add", fields={"title":"上线质量复核"})["ok"])
+                    first = row()["updatedAt"]
+                    task("update", "fixture", "--note", "terminal")
+                    self.assertEqual(row()["note"], "terminal")
+                    with self.assertRaises(HTTPError) as stale:
+                        write("update", revision=first, fields={"title":"stale"})
+                    self.assertEqual(stale.exception.code, 409)
+                    revision = row()["updatedAt"]
+                    with self.assertRaises(HTTPError) as invalid:
+                        write("update", revision=revision, fields={"dueAt":"tomorrow"})
+                    self.assertEqual(invalid.exception.code, 400)
+                    write("update", revision=revision, fields={"note":"Mac"})
+                    self.assertEqual(task("get", "fixture")["note"], "Mac")
+                    write("complete", revision=row()["updatedAt"])
+                    self.assertEqual(task("get", "fixture")["state"], "completed")
+                    write("delete", revision=row()["updatedAt"])
+                    self.assertEqual(task("list")["total"], 0)
+                finally:
+                    server.terminate()
+                    server.wait(timeout=10)
+
+    def test_native_task_snapshot_exchange(self):
+        empty = {"formatVersion":6,"snapshot":{"format_version":6,"version":{"ts":"2026-01-01T00:00:00Z","dev":"test"}}}
+        with tempfile.TemporaryDirectory() as profile, tempfile.TemporaryDirectory() as other:
+            def cli(path, *args, data=None):
+                return json.loads(subprocess.check_output(
+                    [str(BIN), "--json", "--data-dir", path, *args], input=data))["data"]
+            cli(other, "task", "add", "--uid", "mac", "--title", "Mac only")
+            cli(profile, "task", "add", "--uid", "terminal", "--title", "上线质量复核")
+            mac = cli(other, "task-peer-exchange", data=json.dumps(empty).encode())
+            with subprocess.Popen([str(BIN), "--json", "--data-dir", profile, "serve", "--allow-writes"],
+                                  stdout=subprocess.PIPE, text=True) as server:
+                try:
+                    port, token = json.loads(server.stdout.readline())["data"]["connectionCode"].split(".")
+                    url = f"http://127.0.0.1:{port}/v1/task-peer"
+                    headers = {"Authorization":"Bearer " + token}
+                    def exchange(payload):
+                        with urlopen(Request(url, data=json.dumps(payload).encode(), headers=headers), timeout=15) as response:
+                            return json.load(response)["data"]
+                    def revision():
+                        with urlopen(Request(url, headers=headers, method="HEAD"), timeout=5) as response:
+                            return response.headers["ETag"]
+                    first = revision()
+                    both = exchange(mac)
+                    self.assertNotEqual(first, revision())
+                    self.assertEqual({t["uid"] for t in both["snapshot"]["tasks"]}, {"mac", "terminal"})
+                    self.assertLessEqual(set(both["snapshot"]), {"tasks", "categories", "format_version", "version"})
+                    cli(other, "task-peer-exchange", data=json.dumps(both).encode())
+                    self.assertEqual(cli(other, "task", "get", "terminal")["title"], "上线质量复核")
+                    cli(profile, "task", "delete", "terminal")
+                    merged = exchange(mac)
+                    cli(other, "task-peer-exchange", data=json.dumps(merged).encode())
+                    self.assertEqual(cli(other, "task", "list")["total"], 1)
+                finally:
+                    server.terminate()
+                    server.wait(timeout=5)
+
     def test_readonly_live_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:
             cli = [str(BIN), "--json", "--data-dir", directory]

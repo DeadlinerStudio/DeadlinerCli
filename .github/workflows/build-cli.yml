@@ -47,6 +47,15 @@ jobs:
       - name: Pack verified executables
         working-directory: cli
         run: npm pack --pack-destination "$RUNNER_TEMP"
+      - name: Verify global install registers the sandbox launcher
+        env:
+          HOME: ${{ runner.temp }}/peer-home
+        run: |
+          mkdir -p "$HOME"
+          npm install --global --no-fund --no-audit --prefix "$HOME/npm" "$RUNNER_TEMP"/deadlinerstudio-cli-*.tgz
+          hook="$HOME/Library/Application Scripts/com.deadliner.macos"
+          test -x "$hook/deadliner-readonly"
+          test "$(realpath "$hook/deadliner-cli-binary")" = "$(realpath "$HOME/npm/bin/deadliner")"
       - uses: actions/upload-artifact@v4
         with:
           name: deadliner-cli-arm64

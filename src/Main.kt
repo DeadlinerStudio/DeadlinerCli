@@ -38,20 +38,23 @@ fun main(args: Array<String>) {
                 a.validate(emptySet())
                 buildJsonObject { put("cli", "0.2.0"); put("core", KmpBuildMetadata.coreVersion) }
             }
+            a.words == listOf("task-peer-exchange") -> withDatabase(a) { db -> exchangeTasks(db, a) }
             a.words == listOf("serve") -> {
-                a.validate(emptySet())
+                a.validate(setOf("allow-writes"))
                 val profile = profilePath(a)
+                if ("allow-writes" in a.options && access("$profile/deadliner.db", F_OK) != 0) withDatabase(a) { Unit }
                 val binary = NSBundle.mainBundle.executablePath ?: throw CliError("STORAGE_ERROR", "Cannot locate CLI executable", 1)
                 val helper = NSURL.fileURLWithPath(binary).URLByResolvingSymlinksInPath!!.path!!.substringBeforeLast('/') + "/deadliner-serve"
                 fflush(stdout)
                 dup2(fileno(output), STDOUT_FILENO)
                 fclose(output)
                 memScoped {
-                    val argv = allocArray<CPointerVar<ByteVar>>(4)
+                    val argv = allocArray<CPointerVar<ByteVar>>(5)
                     argv[0] = helper.cstr.ptr
                     argv[1] = profile.cstr.ptr
                     argv[2] = (if (jsonOutput) "json" else "human").cstr.ptr
-                    argv[3] = null
+                    argv[3] = (if ("allow-writes" in a.options) "write" else "read").cstr.ptr
+                    argv[4] = null
                     execv(helper, argv)
                 }
                 fputs("Cannot start deadliner-serve; install it next to deadliner\n", stderr)
