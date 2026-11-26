@@ -70,7 +70,7 @@ fun JsonObject.flag(key: String): Boolean? {
 }
 
 val commandSchema: JsonObject get() = buildJsonObject {
-    put("name", "deadliner"); put("protocolVersion", 1); put("platform", "macos-arm64")
+    put("name", "deadliner"); put("protocolVersion", 1); put("platform", cliPlatform)
     put("output", "TTY defaults to human output; pipes and schema default to JSON. --json/--human override. No interactive prompts.")
     put("input", "task add/update --input - reads a strict JSON object from stdin")
     putJsonArray("commands") {
